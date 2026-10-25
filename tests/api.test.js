@@ -7,14 +7,16 @@ const project = { id: "p1", title: "Project", workspaceRoot: "/repo", repository
 function thread(id, values = {}) { return { id, projectId: "p1", title: id, branch: "feature/work", updatedAt: "2026-10-13T00:00:00Z", ...values }; }
 const link = { host: "github.com", repository: "Owner/Repo", number: 42, source: "manual" };
 const tick = () => new Promise(resolve => setImmediate(resolve));
+const refs = (name, current = true) => ({ isRepo: true, hasPrimaryRemote: true, nextCursor: null, totalCount: 1,
+  refs: [{ name, current, isDefault: !current, worktreePath: null }] });
 function harness({ saved = [connection], active = [], archived = [], projects = [project], allowed = true, http, rpc, socketFailure = false } = {}) {
   const data = { t3Connections: structuredClone(saved) };
-  const requests = [], frames = [], sockets = [], accessLevels = [];
+  const requests = [], frames = [], sockets = [], accessLevels = [], removedOrigins = [];
   const chrome = { storage: { local: {
     async setAccessLevel(value) { accessLevels.push(value); },
     async get(key) { return { [key]: data[key] }; },
     async set(value) { Object.assign(data, structuredClone(value)); },
-  } }, permissions: { async contains() { return allowed; } } };
+  } }, permissions: { async contains() { return allowed; }, async remove({ origins }) { removedOrigins.push(...origins); return true; } } };
   class Socket {
     constructor(url) { this.url = url; sockets.push(this); queueMicrotask(() => socketFailure ? this.onerror?.() : this.onopen?.()); }
     send(text) {
@@ -23,7 +25,7 @@ function harness({ saved = [connection], active = [], archived = [], projects = 
       let value, error;
       try {
         value = rpc?.(frame, this.url);
-        if (value === undefined) value = frame.tag === "orchestration.getArchivedShellSnapshot" ? { projects, threads: archived } : { isRepo: true, refName: "feature/work" };
+        if (value === undefined) value = frame.tag === "orchestration.getArchivedShellSnapshot" ? { projects, threads: archived } : refs("feature/work");
       } catch (cause) { error = cause; }
       queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ _tag: "Exit", requestId: frame.id,
         exit: error ? { _tag: "Failure", cause: [{ _tag: "Fail", error: { detail: error.message } }] } : { _tag: "Success", value } }) }));
@@ -42,14 +44,14 @@ function harness({ saved = [connection], active = [], archived = [], projects = 
     return { ok: true, async json() { return structuredClone(body); } };
   }
   const api = create({ chrome, fetch, WebSocket: Socket, now: () => Date.parse("2026-10-13T00:00:00Z"), timeout: 100 });
-  return { api, data, requests, frames, sockets, accessLevels };
+  return { api, data, requests, frames, sockets, accessLevels, removedOrigins };
 }
 
 test("endpoint normalization supports custom ports, IPv6 and proxy paths while rejecting embedded credentials", () => {
   assert.equal(normalizeEndpoint(" http://localhost:7940/ "), "http://localhost:7940");
   assert.equal(normalizeEndpoint("https://t3.example.test/backend/"), "https://t3.example.test/backend");
   assert.equal(permissionOrigin("http://[::1]:3773/"), "http://[::1]:3773/*");
-  for (const value of ["localhost:3773", "file:///tmp/data", "javascript:alert(1)", "http://user:secret@localhost", "http://localhost/?token=secret", "https://host/#secret"]) assert.throws(() => normalizeEndpoint(value));
+  for (const value of ["localhost:3773", "file:///tmp/data", "javascript:alert(1)", "http://user:secret@localhost", "http://localhost/?token=secret", "https://host/#secret", "http://127.0.0.1:3773/?", "http://127.0.0.1:3773/#"]) assert.throws(() => normalizeEndpoint(value));
 });
 
 test("empty settings return an explicit setup state without contacting a server", async () => {
@@ -144,7 +146,9 @@ test("recorded branch and live workspace matches respect fork origin and explici
   assert.deepEqual(result.threads.map(thread => [thread.id, thread.matchType]), [["explicit", "linked"], ["recorded", "branch"], ["live", "checkout"]]);
   assert.equal(result.threads[2].branch, "old");
   assert.equal(result.threads[2].matchedBranch, "feature/work");
-  assert.equal(h.frames.find(frame => frame.tag === "vcs.refreshStatus").payload.cwd, "/fork-worktree");
+  // Live checks read local refs; vcs.refreshStatus fetches and can auto-pull.
+  assert.deepEqual(h.frames.find(frame => frame.tag === "vcs.listRefs").payload, { cwd: "/fork-worktree", refKind: "local", refresh: true, limit: 1 });
+  assert.equal(h.frames.some(frame => frame.tag === "vcs.refreshStatus"), false);
   const noLive = await h.api.handle({ type: "branchLookup", repository: "contributor/repo", branch: "feature/work", liveBranches: false });
   assert.deepEqual(noLive.threads.map(thread => thread.id).sort(), ["explicit", "recorded"]);
 });
@@ -160,7 +164,7 @@ test("repository lookups include associated PRs and current checkout checks use 
 
 test("a failing live Git read preserves explicit matches and reports incomplete lookup", async () => {
   const h = harness({ active: [thread("explicit", { pullRequests: [link] }), thread("live", { branch: "old" })], rpc: frame => {
-    if (frame.tag === "vcs.refreshStatus") throw Error("private path in server error");
+    if (frame.tag === "vcs.listRefs") throw Error("private path in server error");
   } });
   const result = await h.api.handle({ type: "lookup", repository: "owner/repo", number: 42, head: { repository: "owner/repo", branch: "feature/work" } });
   assert.equal(result.ok, true);
@@ -223,4 +227,71 @@ test("legacy links infer GitHub host while an empty modern link array remains un
   const legacy = { linkedPullRequest: { repository: "Owner/Repo", number: 42, url: "https://github.com/Owner/Repo/pull/42" } };
   assert.deepEqual(threadLinks(legacy), [{ repository: "owner/repo", number: 42 }]);
   assert.deepEqual(threadLinks({ ...legacy, pullRequests: [] }), []);
+});
+
+test("live checks try active, recently updated workspaces first and read a detached HEAD as no branch", async () => {
+  const archived = Array.from({ length: 13 }, (_, index) => thread(`archived-${index}`, { branch: "old", worktreePath: `/archived-${index}`, updatedAt: "2026-10-01T00:00:00Z" }));
+  const h = harness({ archived, active: [thread("active", { branch: "old", worktreePath: "/active", updatedAt: "2026-10-12T00:00:00Z" })],
+    rpc: frame => frame.tag === "vcs.listRefs" ? refs(frame.payload.cwd === "/active" ? "feature/work" : "main", frame.payload.cwd === "/active") : undefined });
+  const result = await h.api.handle({ type: "branchLookup", repository: "owner/repo", branch: "feature/work" });
+  assert.deepEqual(result.threads.map(item => [item.id, item.matchType]), [["active", "checkout"]]);
+  assert.equal(h.frames.filter(frame => frame.tag === "vcs.listRefs")[0].payload.cwd, "/active");
+  assert.match(result.lookupWarnings[0], /first 12 workspaces/);
+  const detached = harness({ active: [thread("t")], rpc: frame => frame.tag === "vcs.listRefs" ? refs("main", false) : undefined });
+  const checkout = await detached.api.handle({ type: "checkoutLookup", environmentId: "env", threadId: "t" });
+  assert.deepEqual(checkout.threads[0].checkout, { state: "detached" });
+});
+
+test("calls on a closed socket fail at once instead of waiting for their own timeout", async () => {
+  class Socket {
+    constructor() { queueMicrotask(() => this.onopen()); }
+    send() {}
+    close() { this.onclose?.(); }
+  }
+  const client = await openRpc(Socket, "ws://localhost/ws", 30);
+  await assert.rejects(client.call("slow", {}), /timed out/);
+  const started = Date.now();
+  await assert.rejects(client.call("next", {}), /closed/);
+  assert.ok(Date.now() - started < 20);
+});
+
+test("checkout checks and connection status skip unrelated snapshot downloads", async () => {
+  const remote = { ...connection, id: "remote", name: "Remote", endpoint: "https://remote.test", environmentId: "remote-env" };
+  const h = harness({ saved: [connection, remote], active: [thread("t")],
+    http: (path, _, url) => path === "/.well-known/t3/environment" && url.startsWith("https://remote.test") ? { ok: true, async json() { return { ...descriptor, environmentId: "remote-env" }; } } : undefined });
+  const checkout = await h.api.handle({ type: "checkoutLookup", environmentId: "env", threadId: "t" });
+  assert.equal(checkout.threads[0].checkout.state, "branch");
+  assert.equal(h.requests.some(item => item.url.startsWith("https://remote.test")), false);
+  h.requests.length = 0;
+  h.frames.length = 0;
+  const status = await h.api.handle({ type: "status" });
+  assert.equal(status.ok, true);
+  assert.deepEqual(status.environments.map(item => item.ok), [true, true]);
+  assert.equal(h.requests.some(item => item.url.endsWith("/api/orchestration/shell")), false);
+  assert.equal(h.frames.length, 0);
+  assert.ok(h.requests.filter(item => item.url.endsWith("/api/auth/websocket-ticket")).every(item => item.options.headers.Authorization));
+});
+
+test("server labels get display-name checks and an environment can only be saved once", async () => {
+  for (const [label, expected] of [["all", "localhost:7940"], ["Mac\nMini", "Mac Mini"]]) {
+    const h = harness({ saved: [], http: path => path === "/.well-known/t3/environment" ? { ok: true, async json() { return { ...descriptor, label }; } } : undefined });
+    const result = await h.api.handle({ type: "saveConfig", config: { endpoint: "http://localhost:7940", pairingCode: "code" } });
+    assert.equal(result.connection.name, expected);
+  }
+  const h = harness();
+  const sameEnvironment = await h.api.handle({ type: "saveConfig", config: { endpoint: "https://mini.tailnet.test", pairingCode: "code", name: "Again" } });
+  assert.match(sameEnvironment.error, /already saved as This computer/);
+  assert.equal(h.data.t3Connections.length, 1);
+  assert.equal(h.requests.some(item => item.url.endsWith("/oauth/token")), false);
+});
+
+test("removing or moving a connection releases its site only when no other connection uses it", async () => {
+  const proxied = { ...connection, id: "proxied", name: "Proxied", endpoint: "http://127.0.0.1:3773/other", environmentId: "other-env" };
+  const h = harness({ saved: [connection, proxied] });
+  await h.api.handle({ type: "removeConnection", id: "proxied" });
+  assert.deepEqual(h.removedOrigins, []);
+  await h.api.handle({ type: "saveConfig", config: { id: "local", endpoint: "https://moved.test", pairingCode: "code" } });
+  assert.deepEqual(h.removedOrigins, ["http://127.0.0.1:3773/*"]);
+  await h.api.handle({ type: "removeConnection", id: "local" });
+  assert.deepEqual(h.removedOrigins, ["http://127.0.0.1:3773/*", "https://moved.test/*"]);
 });

@@ -102,10 +102,9 @@ async function check(force = false) {
     const available = environments.filter(environment => environment.ok);
     const unavailable = environments.filter(environment => !environment.ok);
     const warnings = response.lookupWarnings || [];
-    const count = context?.list || context?.result ? shown : response.threadCount;
     connection.dataset.state = unavailable.length || warnings.length ? "attention" : "connected";
-    status.textContent = unavailable.length ? "Some computers unavailable" : context?.list ? `${count} linked ${count === 1 ? "PR" : "PRs"}`
-      : context?.result ? `${count} matching ${count === 1 ? "thread" : "threads"}` : "Connected to T3 Code";
+    status.textContent = unavailable.length ? "Some computers unavailable" : context?.list ? `${shown} linked ${shown === 1 ? "PR" : "PRs"}`
+      : context?.result ? `${shown} matching ${shown === 1 ? "thread" : "threads"}` : "Connected to T3 Code";
     details.textContent = `${available.length} ${available.length === 1 ? "computer" : "computers"} connected`;
     details.title = `${unavailable.length ? "Available: " : ""}${available.map(environment => environment.name).join(", ")}`;
     if (unavailable.length) details.textContent = unavailable.map(environment => `${environment.name}: ${environment.error || "unavailable"}`).join("; ");

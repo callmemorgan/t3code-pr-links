@@ -364,3 +364,57 @@ test("returning to an old PR reuses matches until manual refresh or navigation",
   await tick();
   assert.equal(calls, 3);
 });
+
+function recordBadges(dom) {
+  const badges = [];
+  const send = dom.window.chrome.runtime.sendMessage;
+  dom.window.chrome.runtime.sendMessage = message => { if (message.type === "badge") badges.push(`${message.kind}:${message.count}`); return send(message); };
+  return badges;
+}
+
+test("the toolbar badge counts matches even when no header anchor is found for the panel", async t => {
+  const dom = fixture(t, async () => response, "<main><p>Unrecognized PR layout</p></main>");
+  const badges = recordBadges(dom);
+  await tick();
+  assert.equal(dom.window.document.getElementById("t3code-pr-links"), null);
+  assert.equal(badges.at(-1), "pr:1");
+});
+
+test("a branch picker that briefly reloads on the same URL keeps the result without a new lookup", async t => {
+  const requests = [];
+  const dom = fixture(t, async message => { requests.push(message); return response; }, branchHeader("feature"));
+  dom.window.history.replaceState({}, "", "/owner/repo/tree/feature");
+  dom.window.dispatchEvent(new dom.window.Event("focus"));
+  await tick();
+  assert.equal(requests.filter(message => message.type === "branchLookup").length, 1);
+  const picker = dom.window.document.querySelector("button[data-icv-name]");
+  picker.dataset.loading = "true";
+  dom.window.dispatchEvent(new dom.window.Event("focus"));
+  await tick();
+  assert.ok(dom.window.document.getElementById("t3code-pr-links"));
+  delete picker.dataset.loading;
+  dom.window.dispatchEvent(new dom.window.Event("focus"));
+  await tick();
+  assert.equal(requests.filter(message => message.type === "branchLookup").length, 1);
+  assert.ok(dom.window.document.getElementById("t3code-pr-links"));
+});
+
+test("with list badges off, the PR-list script leaves the PR panel's toolbar badge alone", async t => {
+  const dom = new JSDOM('<main><div id="partial-discussion-header"><h1>PR title</h1></div></main>', {
+    url: "https://github.com/owner/repo/pull/42", runScripts: "outside-only", pretendToBeVisual: true,
+  });
+  t.after(() => dom.window.close());
+  Object.defineProperty(dom.window.document, "hidden", { get: () => false });
+  const badges = [];
+  dom.window.chrome = { runtime: { sendMessage: async message => {
+    if (message.type === "badge") { badges.push(`${message.kind}:${message.count}`); return { ok: true }; }
+    if (message.type === "getPreferences") return { ok: true, preferences: { listBadges: false } };
+    return response;
+  } } };
+  for (const file of ["common.js", "ui.js", "settings.js", "badge.js", "content.js", "list.js"]) dom.window.eval(fs.readFileSync(path.join(extension, file), "utf8"));
+  await tick();
+  dom.window.document.querySelector("main").append(dom.window.document.createElement("div"));
+  await new Promise(resolve => setTimeout(resolve, 150));
+  await tick();
+  assert.deepEqual(badges, ["pr:1"]);
+});

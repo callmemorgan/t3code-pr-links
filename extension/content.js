@@ -8,6 +8,8 @@
   let scheduled = false;
   let lastChecked = 0;
   let pendingLookup = null;
+  let settled = null;
+  let settledUrl = null;
   // Render signatures stay off the DOM: they hold host fields the panel never shows
   // (workspace paths, projects, raw errors) that github.com scripts could read.
   const signatures = new WeakMap();
@@ -15,10 +17,28 @@
   function removePanel() { document.getElementById(ID)?.remove(); }
   function queryFor(context) { return context.query ? JSON.stringify([context.query, T3Settings.get().liveBranches]) : null; }
 
-  function render() {
+  // GitHub briefly drops the branch picker or the PR header's branch links while
+  // it re-renders. On the same URL, keep the last complete context instead.
+  function pageContext() {
     const context = T3Pr.pageContext(document, location.href);
+    if (settled?.key && location.href === settledUrl
+        && (!context.key || (context.key === settled.key && settled.head && !context.head))) return settled;
+    settled = context;
+    settledUrl = location.href;
+    return context;
+  }
+
+  function render() {
+    const context = pageContext();
     if (queryFor(context) !== currentQuery) { removePanel(); return; }
     if (!currentKey || !result) { removePanel(); return; }
+    const allThreads = Array.isArray(result.threads) ? result.threads : [];
+    const threads = T3Settings.sort(T3Settings.filter(allThreads));
+    const hiddenCount = allThreads.length - threads.length;
+    const unavailable = (result.environments || []).filter(environment => !environment.ok);
+    const warnings = result.lookupWarnings || [];
+    // The toolbar count does not depend on finding a place for the panel.
+    globalThis.T3Badge?.set(context.pr ? "pr" : "branch", threads.length, unavailable.length > 0 || warnings.length > 0 || !result.ok);
     const anchor = context.branch ? document.querySelector("main") : document.querySelector("#partial-discussion-header")
       || document.querySelector(".gh-header")
       || document.querySelector('[data-testid="issue-header"]')
@@ -27,12 +47,6 @@
     if (!anchor) return;
     let panel = document.getElementById(ID);
     if (panel?.dataset.key !== currentKey) { panel?.remove(); panel = null; }
-    const allThreads = Array.isArray(result.threads) ? result.threads : [];
-    const threads = T3Settings.sort(T3Settings.filter(allThreads));
-    const hiddenCount = allThreads.length - threads.length;
-    const unavailable = (result.environments || []).filter(environment => !environment.ok);
-    const warnings = result.lookupWarnings || [];
-    globalThis.T3Badge?.set(context.pr ? "pr" : "branch", threads.length, unavailable.length > 0 || warnings.length > 0 || !result.ok);
     if (result.ok && !allThreads.length && !unavailable.length && !warnings.length) {
       removePanel();
       return;
@@ -103,8 +117,8 @@
 
   async function sync(force = false) {
     await T3Settings.ready;
-    const context = T3Pr.pageContext(document, location.href);
-    const { pr, head, branch, key } = context;
+    const context = pageContext();
+    const { head, branch, key } = context;
     const query = queryFor(context);
     if (query !== currentQuery) {
       currentKey = key;
@@ -113,7 +127,7 @@
       result = null;
       inFlight = false;
       removePanel();
-      globalThis.T3Badge?.set("none");
+      globalThis.T3Badge?.clear("pr", "branch");
     }
     if (!key) return;
     render();
@@ -127,7 +141,7 @@
         ? { type: "branchLookup", repository: branch.repository, branch: branch.branch, liveBranches: T3Settings.get().liveBranches }
         : { type: "lookup", url: location.href, liveBranches: T3Settings.get().liveBranches, ...(head ? { head } : {}) });
       if (requestGeneration !== generation) return;
-      if (queryFor(T3Pr.pageContext(document, location.href)) !== query) {
+      if (queryFor(pageContext()) !== query) {
         void sync(true);
         return;
       }
@@ -146,7 +160,7 @@
     if (message?.type !== "pageContext" || sender.id !== chrome.runtime.id
         || sender.url !== chrome.runtime.getURL("popup.html")) return false;
     void (inFlight && pendingLookup ? pendingLookup : sync(message.force === true)).then(() => {
-      const context = T3Pr.pageContext(document, location.href);
+      const context = pageContext();
       sendResponse({ pr: context.pr, head: context.head, branch: context.branch,
         repository: context.repository,
         result: queryFor(context) === currentQuery ? result : null, lastChecked });
