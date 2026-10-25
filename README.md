@@ -8,7 +8,7 @@ An independent community extension for [T3 Code](https://github.com/pingdotgg/t3
 
 Requires Chrome 102 or newer and a running T3 Code server that supports orchestration protocol 2 and its shell snapshot APIs. There is no separate helper, Python installation, or terminal setup. This connection mode works across operating systems supported by Chrome and T3.
 
-1. Install **T3Code PR Links** from the Chrome Web Store. Its connection screen opens automatically when no endpoints are saved.
+1. Install **T3Code PR Links** from the [Chrome Web Store](https://chromewebstore.google.com/detail/t3code-pr-links/bdjdijcodngjbkggknipjfccihmadpln). Its connection screen opens automatically when no endpoints are saved.
 2. Enter your preferred **Endpoint URI**, such as `http://127.0.0.1:3773`. T3’s desktop app usually starts on port 3773 and selects a later port if that one is occupied. Use the actual server address shown in T3 for custom ports, development servers, or remote computers.
 3. In T3’s **Settings → Connections → Authorized clients**, create a pairing code with permission to read threads. Paste that code into the extension, optionally give the endpoint a display name, and click **Connect**.
 4. Allow Chrome to access that endpoint when prompted. Reload existing GitHub tabs.
