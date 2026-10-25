@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "T3Code PR Links",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Open matching T3 Code threads directly from GitHub pull requests using your paired local or remote T3 server.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0eTemJykeW7LQGIrGnq3Ant6ZEAJRy/YqnPjeVVg/ZvSFhlSTOzxOEPIV5qDyebfqgXXCwds8pc4SwRFz7ac6P+aUcVYZenYOigy82UJsl8/BMaYLs5olWTMrseHCiA7BFogobBM28fV54dpgPdivptV32BwLq/TmxukIKeTQmAgA21BCnwJFAHuWKDrgPdRWmldjvp68KUDjjRL77c/PnxUFwXEDlBkWLtPru3uzLTHRpAiIEO1IGy5k6MaA1Sig5ZfC5i44DCKUavusmhfKIvQvRNc6xm6muv+aax6DBrgoOfICVk4/6UqLFHYhMTiv4mKMGCXvvkaOwvd75EF3wIDAQAB",
   "permissions": [

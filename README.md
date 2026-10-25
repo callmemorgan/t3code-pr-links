@@ -19,6 +19,22 @@ You can save up to 12 local or remote endpoints. Remote computers must run a rea
 
 **Check saved connections** checks the saved endpoints without changing unsaved form fields. Removing a connection forgets its token in the extension; revoke its authorized client in T3 too if you want to invalidate server access. Editing the display name at the same endpoint can keep the existing pairing. Changing the endpoint requires a fresh code.
 
+### SSH remote environments
+
+A T3 environment connected over SSH runs its own server. Its threads are not included in the local server's shell snapshot, so pair that server as a separate endpoint. An SSH local port forward makes its loopback-only API reachable without exposing it to the network:
+
+```sh
+ssh -N -T \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=3 \
+  -L 127.0.0.1:43773:127.0.0.1:3773 your-ssh-alias
+```
+
+Replace `your-ssh-alias` and, if necessary, the remote `3773` with the actual T3 port shown on that environment. The local `43773` can be any unused port. Keep the command running, then add `http://127.0.0.1:43773` as a connection in the extension. The pairing code must come from the remote environment, not the local one. On the remote machine, `t3 pair --scope orchestration:read --ttl 10m --label "T3Code PR Links"` creates a suitable short-lived code.
+
+Keep the local endpoint paired as well to search both environments. The encrypted tunnel provides transport security, so HTTP on the local forwarded port is expected. To restore the tunnel after logout or reboot on macOS, run the same SSH command as a per-user `launchd` agent with `RunAtLoad` and `KeepAlive`; it will start at login and reconnect after failures. No native messaging helper or direct database access is involved.
+
 If you installed the old native helper, it is no longer used. You can remove it with `python3 scripts/install.py --uninstall` from an older or current clone. Its stored SSH/data-directory settings are not converted automatically; pair the relevant T3 endpoints in the new connection screen.
 
 ## What matches
