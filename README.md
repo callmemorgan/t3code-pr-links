@@ -21,7 +21,7 @@ You can save up to 12 local or remote endpoints. Remote computers must run a rea
 
 ### SSH remote environments
 
-A T3 environment connected over SSH runs its own server. Its threads are not included in the local server's shell snapshot, so pair that server as a separate endpoint. An SSH local port forward makes its loopback-only API reachable without exposing it to the network:
+T3 runs a separate server for each SSH environment. The local server's shell snapshot omits threads from SSH environments, so pair each remote server as a separate endpoint. An SSH local port forward gives the extension access to the remote loopback-only API without exposing it to the network:
 
 ```sh
 ssh -N -T \
@@ -31,9 +31,15 @@ ssh -N -T \
   -L 127.0.0.1:43773:127.0.0.1:3773 your-ssh-alias
 ```
 
-Replace `your-ssh-alias` and, if necessary, the remote `3773` with the actual T3 port shown on that environment. The local `43773` can be any unused port. Keep the command running, then add `http://127.0.0.1:43773` as a connection in the extension. The pairing code must come from the remote environment, not the local one. On the remote machine, `t3 pair --scope orchestration:read --ttl 10m --label "T3Code PR Links"` creates a suitable short-lived code.
+Replace `your-ssh-alias` with your SSH alias. If the remote server uses a different port, replace the remote `3773` with that port. You can replace the local `43773` with any unused port. Keep the command running, then add `http://127.0.0.1:43773` as a connection in the extension.
 
-Keep the local endpoint paired as well to search both environments. The encrypted tunnel provides transport security, so HTTP on the local forwarded port is expected. To restore the tunnel after logout or reboot on macOS, run the same SSH command as a per-user `launchd` agent with `RunAtLoad` and `KeepAlive`; it will start at login and reconnect after failures. No native messaging helper or direct database access is involved.
+Generate the pairing code on the remote environment, not the local one:
+
+```sh
+t3 pair --scope orchestration:read --ttl 10m --label "T3Code PR Links"
+```
+
+Keep the local endpoint paired as well to search both environments. SSH encrypts the forwarded traffic, so use HTTP on the local forwarded port. On macOS, a per-user `launchd` agent with `RunAtLoad` and `KeepAlive` can start the tunnel at login and restart it after failures. This setup does not use the native messaging helper or read T3 databases.
 
 If you installed the old native helper, it is no longer used. You can remove it with `python3 scripts/install.py --uninstall` from an older or current clone. Its stored SSH/data-directory settings are not converted automatically; pair the relevant T3 endpoints in the new connection screen.
 
