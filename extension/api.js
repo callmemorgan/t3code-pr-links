@@ -8,7 +8,8 @@
     if (typeof value !== "string" || value.length > 2048) throw new Error("Enter a valid T3 endpoint URI.");
     let url;
     try { url = new URL(value.trim()); } catch { throw new Error("Enter a full endpoint URI, such as http://127.0.0.1:3773."); }
-    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+    // A bare trailing "?" or "#" leaves search and hash empty but stays in href.
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || /[?#]/.test(url.href)) {
       throw new Error("Use an HTTP or HTTPS endpoint URI without credentials, a query, or a fragment.");
     }
     return url.href.replace(/\/+$/, "");
@@ -44,7 +45,9 @@
       const pending = new Map();
       let sequence = 0;
       let opened = false;
+      let failure = null;
       const fail = error => {
+        failure ||= error;
         clearTimeout(openTimer);
         if (!opened) reject(error);
         for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(error); }
@@ -56,6 +59,8 @@
         clearTimeout(openTimer);
         opened = true;
         resolve({ close, call(tag, payload) {
+          // A closed socket accepts send() silently; reject instead of waiting out the timer.
+          if (failure) return Promise.reject(failure);
           return new Promise((resolveCall, rejectCall) => {
             const id = String(++sequence);
             const timer = setTimeout(() => {
@@ -93,6 +98,16 @@
     });
   }
 
+  // vcs.refreshStatus fetches, refreshes PR status and can auto-pull. vcs.listRefs
+  // with refresh reads HEAD and local refs only, and sorts the checked-out branch first.
+  async function checkedOutBranch(socket, cwd) {
+    const result = await socket.call("vcs.listRefs", { cwd, refKind: "local", refresh: true, limit: 1 });
+    const ref = Array.isArray(result?.refs) ? result.refs[0] : null;
+    return { isRepo: result?.isRepo === true,
+      refName: ref?.current === true && !ref.isRemote && typeof ref.name === "string" && ref.name
+        && ref.name.length <= 1024 && !/[\x00-\x1f\x7f]/.test(ref.name) ? ref.name : null };
+  }
+
   function create({ chrome, fetch: fetchApi, WebSocket: Socket, now = Date.now, timeout = 12000 }) {
     // GitHub content scripts get only filtered results and display preferences.
     // Access tokens stay in storage restricted to the extension's own contexts.
@@ -109,6 +124,12 @@
       return (await chrome.storage.local.get(CONNECTIONS))[CONNECTIONS] || [];
     }
     function publicConnection({ id, name, endpoint, environmentId, expiresAt }) { return { id, name, endpoint, environmentId, expiresAt }; }
+    // Give up site access once no saved connection uses that origin.
+    async function releaseOrigin(endpoint, remaining) {
+      const origin = permissionOrigin(endpoint);
+      if (remaining.some(item => permissionOrigin(item.endpoint) === origin)) return;
+      try { await chrome.permissions.remove({ origins: [origin] }); } catch { /* Settings can still remove access. */ }
+    }
     async function request(endpoint, path, { token, method = "GET", body, headers = {} } = {}) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
@@ -161,7 +182,11 @@
         const name = typeof input.name === "string" ? input.name.trim() : "";
         if (name.length > 200 || /[\x00-\x1f\x7f]/.test(name) || name === "all") throw new Error("Enter a valid display name other than 'all'.");
         const data = await descriptor(endpoint);
-        const displayName = name || data.label.slice(0, 200);
+        const duplicate = saved.find(item => item.id !== existing?.id && (item.endpoint === endpoint || item.environmentId === data.environmentId));
+        if (duplicate) throw new Error(`This T3 environment is already saved as ${duplicate.name}. Edit that connection instead.`);
+        // A server label gets the same checks as a typed name, falling back to the host.
+        const label = data.label.replace(/[\x00-\x1f\x7f]+/g, " ").trim().slice(0, 200);
+        const displayName = name || (label && label !== "all" ? label : new URL(endpoint).host);
         if (saved.some(item => item.id !== existing?.id && item.name === displayName)) throw new Error("Choose a unique display name for this connection.");
         const pairingCode = typeof input.pairingCode === "string" ? input.pairingCode.trim() : "";
         let token, expiresAt;
@@ -190,8 +215,10 @@
           endpoint, environmentId: data.environmentId, token, expiresAt };
         // Save a redeemed one-time code's token before testing the remaining API,
         // so a transient failure does not force the user to mint another code.
-        await chrome.storage.local.set({ [CONNECTIONS]: [...saved.filter(item => item.id !== connection.id), connection] });
+        const next = [...saved.filter(item => item.id !== connection.id), connection];
+        await chrome.storage.local.set({ [CONNECTIONS]: next });
         snapshots.clear();
+        if (existing && existing.endpoint !== endpoint) await releaseOrigin(existing.endpoint, next);
         let warning;
         try {
           const socket = await rpc(connection);
@@ -235,9 +262,15 @@
     function sort(threads) { return threads.sort((a, b) => rank(a) - rank(b) || Number(a.archived) - Number(b.archived) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))); }
     function publicThread(thread) { const { repositoryKey: ignored, projectId: ignoredId, ...result } = thread; return result; }
     async function lookup(connection, input) {
+      if (input.type === "status") {
+        // Proves the descriptor, token, ticket and WebSocket without downloading thread metadata.
+        await descriptor(connection.endpoint, connection.environmentId);
+        (await rpc(connection)).close();
+        return { threads: [] };
+      }
+      if (input.type === "checkoutLookup" && connection.environmentId !== input.environmentId) return { threads: [] };
       const threads = await loadSnapshot(connection);
       const warnings = [];
-      if (input.type === "status") return { threadCount: threads.length, threads: [] };
       if (input.type === "batchLookup") {
         const matches = {};
         for (const query of input.queries) {
@@ -248,7 +281,6 @@
         return { matches };
       }
       if (input.type === "checkoutLookup") {
-        if (connection.environmentId !== input.environmentId) return { threads: [] };
         const thread = threads.find(item => item.id === input.threadId);
         if (!thread) return { threads: [] };
         let checkout;
@@ -256,7 +288,7 @@
         else {
           const socket = await rpc(connection);
           try {
-            const status = await socket.call("vcs.refreshStatus", { cwd: thread.workspace });
+            const status = await checkedOutBranch(socket, thread.workspace);
             checkout = !status.isRepo ? { state: "unavailable", error: "The saved workspace is not a Git repository." }
               : status.refName ? { state: "branch", branch: status.refName, matchesRecorded: thread.branch ? status.refName === thread.branch : null }
               : { state: "detached" };
@@ -275,7 +307,9 @@
           ...(branch && !linked ? { matchedBranch: targetBranch.branch } : {}) });
       }
       if (targetBranch && input.liveBranches !== false) {
-        const candidates = threads.filter(thread => !matches.has(thread.id) && thread.workspace && thread.repositoryKey === `github.com/${targetBranch.repository}`);
+        // Snapshots list archived threads first; check recently active workspaces within the limit.
+        const candidates = threads.filter(thread => !matches.has(thread.id) && thread.workspace && thread.repositoryKey === `github.com/${targetBranch.repository}`)
+          .sort((a, b) => Number(a.archived) - Number(b.archived) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
         const workspaces = [...new Set(candidates.map(thread => thread.workspace))];
         if (workspaces.length) {
           let socket;
@@ -286,7 +320,7 @@
             const paths = workspaces.slice(0, 12);
             for (let index = 0; index < paths.length; index += 4) {
               await Promise.all(paths.slice(index, index + 4).map(async cwd => {
-                try { const status = await socket.call("vcs.refreshStatus", { cwd }); statuses.set(cwd, status.isRepo ? status.refName : null); }
+                try { const status = await checkedOutBranch(socket, cwd); statuses.set(cwd, status.isRepo ? status.refName : null); }
                 catch { warnings.push("Some current workspace branches could not be checked."); }
               }));
             }
@@ -325,7 +359,6 @@
         const records = [...new Map(results.flatMap(item => item.result?.threads || []).map(thread => [`${thread.environmentId}:${thread.id}`, thread])).values()];
         result.threads = sort(records).slice(0, MAX_RESULTS);
         result.truncated = records.length > MAX_RESULTS;
-        if (input.type === "status") result.threadCount = results.reduce((sum, item) => sum + (item.result?.threadCount || 0), 0);
       }
       if (result.truncated) warnings.push("Some matching threads were omitted because the result limit was reached. Narrow the lookup to see more.");
       return result;
@@ -336,8 +369,11 @@
         if (input.type === "saveConfig") return await connect(input.config);
         if (input.type === "removeConnection") return await mutate(async () => {
           const saved = await connections();
-          await chrome.storage.local.set({ [CONNECTIONS]: saved.filter(item => item.id !== input.id) });
+          const remaining = saved.filter(item => item.id !== input.id);
+          await chrome.storage.local.set({ [CONNECTIONS]: remaining });
           snapshots.clear();
+          const removed = saved.find(item => item.id === input.id);
+          if (removed) await releaseOrigin(removed.endpoint, remaining);
           return { ok: true };
         });
         return await aggregate(input);

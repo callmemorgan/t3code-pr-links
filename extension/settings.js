@@ -34,14 +34,31 @@
     if (area === "local" && changes.preferences) apply(changes.preferences.newValue);
   });
 
-  async function update(patch) {
-    await ready;
+  // Send and merge only the changed keys, so a context holding stale values
+  // (such as a tab restored from the back/forward cache) cannot overwrite others.
+  function changes(patch) {
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) return {};
     const next = normalize({ ...values, ...patch });
-    if (contentScript) {
-      const response = await root.chrome.runtime.sendMessage({ type: "updatePreferences", patch: next });
-      if (!response?.ok) throw new Error("Could not save display preferences.");
-    } else if (storage?.local) await storage.local.set({ preferences: next });
-    apply(next);
+    return Object.fromEntries(Object.keys(defaults).filter(key => Object.hasOwn(patch, key)).map(key => [key, next[key]]));
+  }
+
+  let updates = Promise.resolve();
+  function update(patch) {
+    const operation = updates.then(async () => {
+      await ready;
+      const changed = changes(patch);
+      if (contentScript) {
+        const response = await root.chrome.runtime.sendMessage({ type: "updatePreferences", patch: changed });
+        if (!response?.ok) throw new Error("Could not save display preferences.");
+        apply(response.preferences && typeof response.preferences === "object" ? response.preferences : { ...values, ...changed });
+      } else if (storage?.local) {
+        const next = normalize({ ...normalize((await storage.local.get("preferences")).preferences), ...changed });
+        await storage.local.set({ preferences: next });
+        apply(next);
+      } else apply({ ...values, ...changed });
+    });
+    updates = operation.catch(() => {});
+    return operation;
   }
 
   function filter(threads = []) {

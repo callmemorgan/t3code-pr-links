@@ -5,11 +5,11 @@ T3Code PR Links is an independent community extension for [T3 Code](https://gith
 ## What the extension reads
 
 - **GitHub pages:** the current page URL, repository, PR number, and source branch. On PR lists it also reads visible PR links and titles. This identifies matching T3 threads. It does not maintain browsing history or use a GitHub token.
-- **Paired T3 servers:** environment identity and version, thread titles and identifiers, archived status, recorded branches, project/repository and workspace metadata, and linked PRs. When enabled or explicitly requested, it asks T3 for current workspace VCS status. T3’s shell API can also return a latest-message excerpt and unrelated state; these fields are discarded immediately. The extension does not fetch full conversations or display, store, or export those excerpts.
+- **Paired T3 servers:** environment identity and version, thread titles and identifiers, archived status, recorded branches, project/repository and workspace metadata, and linked PRs. When enabled or explicitly requested, it asks T3 which branch a saved workspace has checked out. T3 answers from local Git refs without fetching. T3’s shell API can also return a latest-message excerpt and unrelated state; these fields are discarded immediately. The extension does not fetch full conversations or display, store, or export those excerpts.
 
 ## Where data goes
 
-The extension communicates directly with the endpoint URIs you configure using HTTP and WebSocket APIs. A local endpoint keeps this traffic on your computer. A remote endpoint sends API requests to that server and returns results to your browser; use HTTPS to encrypt remote traffic. Requests include your paired access token or a short-lived WebSocket ticket. T3 may itself contact its source-control provider when serving a VCS status request.
+The extension communicates directly with the endpoint URIs you configure using HTTP and WebSocket APIs. A local endpoint keeps this traffic on your computer. A remote endpoint sends API requests to that server and returns results to your browser; use HTTPS to encrypt remote traffic. Requests include your paired access token or a short-lived WebSocket ticket.
 
 GitHub content scripts receive matching thread results and display preferences. The extension inserts thread titles, computer names, and links into GitHub pages. Endpoint credentials stay in the extension’s own contexts and are never sent to GitHub pages. No requests go to a developer-operated server or analytics service.
 
@@ -19,7 +19,7 @@ Chrome local storage contains your endpoint URIs, display names, environment IDs
 
 Pairing requests `orchestration:read` access. The supplied pairing code is used to obtain a token and is not saved. Lookup results are held temporarily in memory; they are not persisted. **Export shown links** saves the selected results to a JSON file only when you request an export.
 
-Removing a saved connection deletes its token from the extension. Revoking the authorized client in T3 invalidates server access. Uninstalling the extension removes its Chrome storage. If you installed the native helper used by older versions, `python3 scripts/install.py --uninstall` removes that helper and its configuration; version 2.0.0 does not use it.
+Removing a saved connection deletes its token from the extension and removes Chrome's access to that endpoint's site when no other saved connection uses it. Revoking the authorized client in T3 invalidates server access. Uninstalling the extension removes its Chrome storage. If you installed the native helper used by older versions, `python3 scripts/install.py --uninstall` removes that helper and its configuration; versions 2.0.0 and later do not use it.
 
 ## Changes and contact
 
