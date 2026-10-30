@@ -23,6 +23,18 @@
     return found;
   }
 
+  function placeMenu(badge) {
+    const menu = badge.querySelector(".t3code-pr-list-menu");
+    if (!menu?.popover || !menu.matches(":popover-open")) return;
+    const anchor = badge.getBoundingClientRect();
+    const { width, height } = menu.getBoundingClientRect();
+    const above = anchor.top - 5 - height;
+    const top = anchor.bottom + 5 + height > innerHeight - 8 && above >= 8 ? above : anchor.bottom + 5;
+    menu.style.top = `${top}px`;
+    menu.style.left = `${Math.max(8, Math.min(anchor.left, innerWidth - width - 8))}px`;
+  }
+  function openMenus() { return document.querySelectorAll(`details.${BADGE}[open]`); }
+
   function removeBadges() { document.querySelectorAll(`.${BADGE}`).forEach(node => node.remove()); }
   function signatureFor(entries) {
     const keys = [...new Set(entries.map(entry => entry.pr.key))].sort();
@@ -57,6 +69,14 @@
           if (row) menu.append(row);
         }
         badge.append(menu);
+        // GitHub's list box clips overflow, so the menu opens in the top layer where supported.
+        if (typeof menu.showPopover === "function") {
+          menu.popover = "manual";
+          badge.addEventListener("toggle", () => {
+            if (badge.open && badge.isConnected) { menu.showPopover(); placeMenu(badge); }
+            else if (menu.matches(":popover-open")) menu.hidePopover();
+          });
+        }
       }
       rowSignatures.set(badge, rowSignature);
       link.insertAdjacentElement("afterend", badge);
@@ -126,6 +146,14 @@
   }
   new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
   for (const event of ["turbo:load", "turbo:render", "pjax:end", "popstate"]) window.addEventListener(event, schedule);
+  for (const event of ["scroll", "resize"]) window.addEventListener(event, () => openMenus().forEach(placeMenu), { capture: true, passive: true });
+  document.addEventListener("pointerdown", event => {
+    for (const badge of openMenus()) if (!badge.contains(event.target)) badge.open = false;
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    for (const badge of openMenus()) { badge.open = false; badge.querySelector("summary")?.focus(); }
+  });
   window.addEventListener("focus", () => void sync());
   document.addEventListener("visibilitychange", () => { if (!document.hidden) void sync(); });
   T3Settings.subscribe(() => void sync());

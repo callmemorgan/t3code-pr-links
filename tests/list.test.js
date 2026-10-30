@@ -42,6 +42,21 @@ test("multiple threads are individually accessible in a PR list menu", async t =
   assert.ok(badge.querySelector('a[href="t3code://threads/mini/t2"]'));
 });
 
+test("a PR list menu closes on an outside click or Escape", async t => {
+  const dom = list(t, async () => ({ ok: true, matches: { "owner/repo#42": [thread, { ...thread, id: "t2", title: "Second thread" }] } }));
+  await tick();
+  const { document, MouseEvent, KeyboardEvent } = dom.window;
+  const badge = document.querySelector("details.t3code-pr-list-badge");
+  badge.open = true;
+  badge.querySelector(".t3code-pr-list-menu").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+  assert.equal(badge.open, true);
+  document.querySelector("main").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+  assert.equal(badge.open, false);
+  badge.open = true;
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  assert.equal(badge.open, false);
+});
+
 test("old batch results cannot add badges after navigation to a PR detail page", async t => {
   let resolve;
   const dom = list(t, () => new Promise(done => { resolve = done; }));
