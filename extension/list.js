@@ -85,7 +85,7 @@
 
   async function sync(force = false, forPopup = false) {
     await T3Settings.ready;
-    if (!T3Settings.get().listBadges && !forPopup) { removeBadges(); globalThis.T3Badge?.set("none"); return; }
+    if (!T3Settings.get().listBadges && !forPopup) { removeBadges(); globalThis.T3Badge?.clear("list"); return; }
     const entries = targets();
     const nextSignature = signatureFor(entries);
     if (signature !== nextSignature) {
@@ -95,7 +95,7 @@
       result = null;
       completedAt = 0;
       removeBadges();
-      globalThis.T3Badge?.set("none");
+      globalThis.T3Badge?.clear("list");
     }
     if (!signature) return;
     if (T3Settings.get().listBadges) render(entries);

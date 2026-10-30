@@ -16,11 +16,18 @@ test("pairs and reads active/archived threads over HTTP and the real Effect RPC 
   const archived = { projects: [project], threads: [{ id: "archived-thread", projectId: "project", title: "Archived work", branch: "feature", pullRequests: [linked] }] };
   const group = RpcGroup.make(
     Rpc.make("orchestration.getArchivedShellSnapshot", { payload: Schema.Struct({}), success: Schema.Struct({ projects: Schema.Array(Schema.Unknown), threads: Schema.Array(Schema.Unknown) }) }),
-    Rpc.make("vcs.refreshStatus", { payload: Schema.Struct({ cwd: Schema.String }), success: Schema.Struct({ isRepo: Schema.Boolean, refName: Schema.String }) }),
+    // Mirrors the fields of T3's VcsListRefsInput and VcsListRefsResult that the extension uses.
+    Rpc.make("vcs.listRefs", {
+      payload: Schema.Struct({ cwd: Schema.String, refKind: Schema.optional(Schema.Literals(["all", "local", "remote"])), refresh: Schema.optional(Schema.Boolean), limit: Schema.optional(Schema.Number) }),
+      success: Schema.Struct({ isRepo: Schema.Boolean, refs: Schema.Array(Schema.Struct({ name: Schema.String, current: Schema.Boolean, isDefault: Schema.Boolean, worktreePath: Schema.NullOr(Schema.String) })) }),
+    }),
   );
   const layer = group.toLayer({
     "orchestration.getArchivedShellSnapshot": () => Effect.succeed(archived),
-    "vcs.refreshStatus": ({ cwd }) => { assert.equal(cwd, "/synthetic"); return Effect.succeed({ isRepo: true, refName: "feature" }); },
+    "vcs.listRefs": input => {
+      assert.deepEqual(input, { cwd: "/synthetic", refKind: "local", refresh: true, limit: 1 });
+      return Effect.succeed({ isRepo: true, refs: [{ name: "feature", current: true, isDefault: false, worktreePath: "/synthetic" }] });
+    },
   });
   let receive, disconnect;
   let resolveReady;

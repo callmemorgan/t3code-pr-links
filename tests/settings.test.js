@@ -79,3 +79,24 @@ test("thread sorting is stable, preserves explicit PR priority, and does not mut
   assert.deepEqual(Array.from(settings.sort(records, { repository: true }), t => t.id), ["workspace", "archived", "linked"]);
   assert.equal(records[0].id, "workspace");
 });
+
+test("updates send only changed keys and merge with the latest stored preferences in order", async () => {
+  const requests = [];
+  const content = { location: { protocol: "https:" }, chrome: { runtime: { id: "extension-id", onMessage: { addListener() {} },
+    async sendMessage(message) { requests.push(message); return { ok: true, preferences: { sort: "title", ...message.patch } }; } } } };
+  vm.runInNewContext(source, content);
+  await content.T3Settings.update({ includeArchived: false, unknown: true });
+  assert.deepEqual({ ...requests.at(-1).patch }, { includeArchived: false });
+  assert.equal(content.T3Settings.get().sort, "title");
+
+  let stored = { sort: "title" };
+  const page = { chrome: { storage: { local: {
+    async get() { await new Promise(resolve => setTimeout(resolve, 5)); return { preferences: stored }; },
+    async set(value) { stored = value.preferences; },
+  } } } };
+  vm.runInNewContext(source, page);
+  await page.T3Settings.ready;
+  stored = { ...stored, liveBranches: false };
+  await Promise.all([page.T3Settings.update({ includeArchived: false }), page.T3Settings.update({ includeBranch: false })]);
+  assert.deepEqual([stored.sort, stored.liveBranches, stored.includeArchived, stored.includeBranch], ["title", false, false, false]);
+});
