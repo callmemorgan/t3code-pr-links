@@ -142,7 +142,7 @@ searchInput.addEventListener("input", render);
 
 function renderFilters() {
   const preferences = T3Settings.get();
-  for (const key of ["includeArchived", "includeBranch", "liveBranches"]) document.getElementById(key).checked = preferences[key];
+  for (const key of ["includeArchived", "includeBranch", "includeSubagents", "liveBranches"]) document.getElementById(key).checked = preferences[key];
   const computers = new Map((result?.environments || []).map(environment => [environment.name, environment.ok]));
   for (const thread of result?.threads || []) {
     const name = thread.computer || "This computer";
@@ -161,7 +161,7 @@ function renderFilters() {
   select.value = preferences.computer;
 }
 
-for (const key of ["includeArchived", "includeBranch", "liveBranches", "computer"]) {
+for (const key of ["includeArchived", "includeBranch", "includeSubagents", "liveBranches", "computer"]) {
   document.getElementById(key).addEventListener("change", async event => {
     try {
       await T3Settings.update({ [key]: key === "computer" ? event.target.value : event.target.checked });
@@ -174,7 +174,7 @@ for (const key of ["includeArchived", "includeBranch", "liveBranches", "computer
 }
 document.getElementById("show-all").addEventListener("click", async () => {
   try {
-    await T3Settings.update({ includeArchived: true, includeBranch: true, computer: "all" });
+    await T3Settings.update({ includeArchived: true, includeBranch: true, includeSubagents: true, computer: "all" });
     searchInput.value = "";
     document.getElementById("settings-error").textContent = "";
     render();

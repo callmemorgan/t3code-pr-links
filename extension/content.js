@@ -90,7 +90,7 @@
       const reset = T3Ui.element(document, "button", "t3code-pr-button", "Show all threads");
       reset.type = "button";
       reset.addEventListener("click", async () => {
-        try { await T3Settings.update({ includeArchived: true, includeBranch: true, computer: "all" }); }
+        try { await T3Settings.update({ includeArchived: true, includeBranch: true, includeSubagents: true, computer: "all" }); }
         catch { notice.textContent = "Could not save filters. Try again in the extension popup."; }
       });
       notice.append(reset);

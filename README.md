@@ -58,6 +58,7 @@ Unavailable endpoints produce coverage warnings alongside results from available
 - The GitHub PR/branch panel shows matching thread links, computer names, and inferred branch matches. PR lists display badges beside linked PRs.
 - The toolbar popup launches matching threads, groups PR-list results, and links source branches to an exact branch lookup. **Refresh** requests fresh metadata; there is no periodic polling.
 - **Find threads** opens a repository browser. Enter `owner/repository`, a GitHub repository URL, or a PR URL; optionally supply an exact branch for a repository lookup. A pasted PR URL checks explicit links, while visiting the PR on GitHub also supplies its source branch.
+- Sub-agent threads, such as `delegate_task` children and council reviewers, are hidden by default, as in T3’s own sidebar. Turn on **Include sub-agent threads** in the popup’s filters to show them with a **Sub-agent** badge. Parent threads rank ahead of their sub-agents, so a PR with many sub-agents still shows its parent within the result limits.
 - Display filters, sorting, and search apply to the loaded results. **Show all loaded threads** restores results hidden by filters. Changing live-workspace lookup rechecks an active branch query.
 - **Check current checkout** asks T3 for the current branch of a thread’s saved workspace, using the same local Git ref read. It does not fetch, pull, or otherwise change that workspace.
 - **Export shown links** downloads the displayed thread links, associated PR URLs, lookup timestamp, and coverage information as JSON.

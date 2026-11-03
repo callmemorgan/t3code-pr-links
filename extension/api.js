@@ -249,7 +249,9 @@
                 projectId: thread.projectId, project: project?.title || "", branch: thread.branch || null,
                 workspace: thread.worktreePath || project?.workspaceRoot || null, workspaceType: thread.worktreePath ? "worktree" : "workspace",
                 repositoryKey: repositoryKey(project?.repositoryIdentity), pullRequests: threadLinks(thread),
-                archived: isArchived || Boolean(thread.archivedAt), updatedAt: thread.updatedAt || null, computer: connection.name });
+                archived: isArchived || Boolean(thread.archivedAt), updatedAt: thread.updatedAt || null, computer: connection.name,
+                // delegate_task children and provider-native sub-agents; T3 hides these from its own sidebar.
+                subagent: thread.lineage?.relationshipToParent === "subagent" });
             }
           }
           return [...threads.values()];
@@ -259,7 +261,8 @@
       try { return await pending; } finally { if (snapshots.get(connection.id) === pending) snapshots.delete(connection.id); }
     }
     const rank = thread => ({ linked: 0, branch: 1, checkout: 2, repository: 3 })[thread.matchType] ?? 4;
-    function sort(threads) { return threads.sort((a, b) => rank(a) - rank(b) || Number(a.archived) - Number(b.archived) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))); }
+    // Sub-agents rank last so they cannot push their parent threads past the result limits.
+    function sort(threads) { return threads.sort((a, b) => rank(a) - rank(b) || Number(a.subagent) - Number(b.subagent) || Number(a.archived) - Number(b.archived) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))); }
     function publicThread(thread) { const { repositoryKey: ignored, projectId: ignoredId, ...result } = thread; return result; }
     async function lookup(connection, input) {
       if (input.type === "status") {

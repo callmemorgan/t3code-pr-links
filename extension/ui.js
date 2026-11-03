@@ -69,6 +69,7 @@
       badge.title = matchExplanation(thread);
       row.append(badge);
     }
+    if (thread.subagent) row.append(element(document, "span", "t3code-pr-match-kind", "Sub-agent"));
     if (thread.archived) row.append(element(document, "span", "t3code-pr-match-kind", "Archived"));
     if (actions) row.append(copyButton(document, thread));
     return row;
