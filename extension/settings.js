@@ -1,5 +1,5 @@
 (function (root) {
-  const defaults = Object.freeze({ includeArchived: true, includeBranch: true, listBadges: true, liveBranches: true, computer: "all", sort: "active" });
+  const defaults = Object.freeze({ includeArchived: true, includeBranch: true, includeSubagents: false, listBadges: true, liveBranches: true, computer: "all", sort: "active" });
   let values = { ...defaults };
   const listeners = new Set();
 
@@ -8,6 +8,8 @@
     return {
       includeArchived: input.includeArchived !== false,
       includeBranch: input.includeBranch !== false,
+      // Hidden unless chosen, including for preferences saved before this option existed.
+      includeSubagents: input.includeSubagents === true,
       listBadges: input.listBadges !== false,
       liveBranches: input.liveBranches !== false,
       computer: typeof input.computer === "string" && input.computer.length <= 200 ? input.computer : "all",
@@ -64,6 +66,7 @@
   function filter(threads = []) {
     return threads.filter(thread => (values.includeArchived || !thread.archived)
       && (values.includeBranch || !["branch", "checkout"].includes(thread.matchType))
+      && (values.includeSubagents || !thread.subagent)
       && (values.computer === "all" || (thread.computer || "This computer") === values.computer));
   }
 

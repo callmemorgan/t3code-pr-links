@@ -214,6 +214,33 @@ test("saved filters for a removed computer remain visible and can be recovered",
   assert.equal(dom.window.T3Settings.get().liveBranches, false);
 });
 
+test("sub-agent threads start hidden, can be shown with a badge, and are restored by show all", async t => {
+  let saved = {};
+  const storage = { local: { async get() { return { preferences: saved }; }, async set(value) { saved = value.preferences; } } };
+  const dom = browser(t, async () => ({ ok: true, threads: [
+    { id: "parent", environmentId: "env", title: "Parent work" },
+    { id: "child", environmentId: "env", title: "Council review", subagent: true },
+  ] }), undefined, storage);
+  await tick();
+  const document = dom.window.document;
+  assert.equal(document.getElementById("includeSubagents").checked, false);
+  assert.deepEqual(Array.from(document.querySelectorAll(".thread a"), link => link.textContent), ["Parent work ↗"]);
+  assert.equal(document.getElementById("filter-notice").hidden, false);
+  document.getElementById("includeSubagents").checked = true;
+  document.getElementById("includeSubagents").dispatchEvent(new dom.window.Event("change"));
+  await tick();
+  assert.equal(saved.includeSubagents, true);
+  assert.equal(document.querySelectorAll(".thread").length, 2);
+  assert.ok(Array.from(document.querySelectorAll(".t3code-pr-match-kind"), badge => badge.textContent).includes("Sub-agent"));
+  await dom.window.T3Settings.update({ includeSubagents: false });
+  await tick();
+  assert.equal(document.querySelectorAll(".thread").length, 1);
+  document.getElementById("show-all").click();
+  await tick();
+  assert.equal(document.querySelectorAll(".thread").length, 2);
+  assert.equal(document.getElementById("includeSubagents").checked, true);
+});
+
 test("failed filter saves restore controls and leave the displayed results intact", async t => {
   const storage = { local: { async get() { return {}; }, async set() { throw Error("Storage unavailable"); } } };
   const dom = browser(t, async () => ({ ok: true, threads: [{ id: "a", environmentId: "env", title: "Archived work", archived: true }] }), undefined, storage);

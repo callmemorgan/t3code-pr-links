@@ -56,6 +56,25 @@ test("saved preferences filter by archive, match kind, and computer and follow l
   assert.equal(settings.filter(records).length, 4);
 });
 
+test("sub-agent threads are hidden by default, including for preferences saved before the option existed", async () => {
+  const writes = [];
+  const context = { chrome: { storage: { local: {
+    async get() { return { preferences: { includeArchived: true, includeBranch: true, computer: "all", sort: "active" } }; },
+    async set(value) { writes.push(value); } } } } };
+  vm.runInNewContext(source, context);
+  const settings = context.T3Settings;
+  await settings.ready;
+  assert.equal(settings.defaults.includeSubagents, false);
+  assert.equal(settings.get().includeSubagents, false);
+  const records = [{ id: "parent", matchType: "linked" }, { id: "child", matchType: "linked", subagent: true }];
+  assert.deepEqual(Array.from(settings.filter(records), thread => thread.id), ["parent"]);
+  await settings.update({ includeSubagents: true });
+  assert.equal(writes.at(-1).preferences.includeSubagents, true);
+  assert.equal(settings.filter(records).length, 2);
+  await settings.update({ includeSubagents: "yes" });
+  assert.equal(settings.get().includeSubagents, false);
+});
+
 test("failed preference writes do not silently change the current filters", async () => {
   const context = { chrome: { storage: { local: { async get() { return {}; }, async set() { throw Error("Storage unavailable"); } } } } };
   vm.runInNewContext(source, context);

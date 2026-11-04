@@ -5,7 +5,7 @@ T3Code PR Links is an independent community extension for [T3 Code](https://gith
 ## What the extension reads
 
 - **GitHub pages:** the current page URL, repository, PR number, and source branch. On PR lists it also reads visible PR links and titles. This identifies matching T3 threads. It does not maintain browsing history or use a GitHub token.
-- **Paired T3 servers:** environment identity and version, thread titles and identifiers, archived status, recorded branches, project/repository and workspace metadata, and linked PRs. When enabled or explicitly requested, it asks T3 which branch a saved workspace has checked out. T3 answers from local Git refs without fetching. T3’s shell API can also return a latest-message excerpt and unrelated state; these fields are discarded immediately. The extension does not fetch full conversations or display, store, or export those excerpts.
+- **Paired T3 servers:** environment identity and version, thread titles and identifiers, archived status, whether a thread is a sub-agent, recorded branches, project/repository and workspace metadata, and linked PRs. When enabled or explicitly requested, it asks T3 which branch a saved workspace has checked out. T3 answers from local Git refs without fetching. T3’s shell API can also return a latest-message excerpt and unrelated state; these fields are discarded immediately. The extension does not fetch full conversations or display, store, or export those excerpts.
 
 ## Where data goes
 

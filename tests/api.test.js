@@ -184,6 +184,38 @@ test("partial endpoint failures preserve available matches and batch limits rema
   assert.match(result.lookupWarnings.at(-1), /omitted/);
 });
 
+test("sub-agent threads are flagged from T3 lineage and rank after their parents within result limits", async () => {
+  const child = index => thread(`child-${index}`, { pullRequests: [link], updatedAt: "2026-10-14T00:00:00Z",
+    lineage: { parentThreadId: "parent", relationshipToParent: "subagent", rootThreadId: "parent" } });
+  const h = harness({ active: [...Array.from({ length: 12 }, (_, index) => child(index)),
+    thread("fork", { pullRequests: [link], lineage: { parentThreadId: "parent", relationshipToParent: "fork", rootThreadId: "parent" } }),
+    thread("parent", { pullRequests: [link], lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: "parent" } })] });
+  const result = await h.api.handle({ type: "batchLookup", queries: [{ repository: "owner/repo", number: 42 }] });
+  const shown = result.matches["owner/repo#42"];
+  assert.equal(shown.length, 10);
+  // The children are newer, but the parent and fork must survive the 10-thread cap.
+  assert.deepEqual(shown.slice(0, 2).map(item => [item.id, item.subagent]).sort(), [["fork", false], ["parent", false]]);
+  assert.ok(shown.slice(2).every(item => item.subagent === true));
+  const lookup = await h.api.handle({ type: "lookup", repository: "owner/repo", number: 42 });
+  assert.equal(lookup.threads.filter(item => item.subagent).length, 12);
+});
+
+test("sub-agents never take result slots from other threads across PRs or match kinds", async () => {
+  const lineage = { parentThreadId: "parent", relationshipToParent: "subagent", rootThreadId: "parent" };
+  const pr = number => ({ ...link, number });
+  const active = Array.from({ length: 21 }, (_, index) => [thread(`parent-${index + 1}`, { pullRequests: [pr(index + 1)] }),
+    ...Array.from({ length: 9 }, (__, child) => thread(`child-${index + 1}-${child}`, { pullRequests: [pr(index + 1)], updatedAt: "2026-10-14T00:00:00Z", lineage }))]).flat();
+  let h = harness({ active });
+  const batch = await h.api.handle({ type: "batchLookup", queries: Array.from({ length: 21 }, (_, index) => ({ repository: "owner/repo", number: index + 1 })) });
+  assert.equal(batch.truncated, true);
+  for (let number = 1; number <= 21; number++) assert.equal(batch.matches[`owner/repo#${number}`][0].id, `parent-${number}`);
+  // An explicitly linked sub-agent still ranks after a branch-matched thread at the 200-thread limit.
+  h = harness({ active: [thread("parent"), ...Array.from({ length: 200 }, (_, index) => thread(`child-${index}`, { branch: "other", pullRequests: [link], lineage }))] });
+  const lookup = await h.api.handle({ type: "lookup", repository: "owner/repo", number: 42, head: { repository: "owner/repo", branch: "feature/work" }, liveBranches: false });
+  assert.equal(lookup.threads.length, 200);
+  assert.deepEqual([lookup.threads[0].id, lookup.threads[0].matchType], ["parent", "branch"]);
+});
+
 test("renaming at the same endpoint retains the token, changing the endpoint needs a fresh code", async () => {
   const h = harness();
   const result = await h.api.handle({ type: "saveConfig", config: { id: "local", endpoint: connection.endpoint, name: "New name" } });

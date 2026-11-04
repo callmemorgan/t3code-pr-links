@@ -249,7 +249,9 @@
                 projectId: thread.projectId, project: project?.title || "", branch: thread.branch || null,
                 workspace: thread.worktreePath || project?.workspaceRoot || null, workspaceType: thread.worktreePath ? "worktree" : "workspace",
                 repositoryKey: repositoryKey(project?.repositoryIdentity), pullRequests: threadLinks(thread),
-                archived: isArchived || Boolean(thread.archivedAt), updatedAt: thread.updatedAt || null, computer: connection.name });
+                archived: isArchived || Boolean(thread.archivedAt), updatedAt: thread.updatedAt || null, computer: connection.name,
+                // delegate_task children and provider-native sub-agents; T3 hides these from its own sidebar.
+                subagent: thread.lineage?.relationshipToParent === "subagent" });
             }
           }
           return [...threads.values()];
@@ -259,7 +261,8 @@
       try { return await pending; } finally { if (snapshots.get(connection.id) === pending) snapshots.delete(connection.id); }
     }
     const rank = thread => ({ linked: 0, branch: 1, checkout: 2, repository: 3 })[thread.matchType] ?? 4;
-    function sort(threads) { return threads.sort((a, b) => rank(a) - rank(b) || Number(a.archived) - Number(b.archived) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))); }
+    // Sub-agents rank last so they cannot push other threads past the result limits.
+    function sort(threads) { return threads.sort((a, b) => Number(a.subagent) - Number(b.subagent) || rank(a) - rank(b) || Number(a.archived) - Number(b.archived) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))); }
     function publicThread(thread) { const { repositoryKey: ignored, projectId: ignoredId, ...result } = thread; return result; }
     async function lookup(connection, input) {
       if (input.type === "status") {
@@ -347,14 +350,21 @@
       const result = { ok, environments, lookupWarnings: warnings, ...(ok ? {} : { error: "Could not reach any saved T3 endpoint. Check Settings and keep T3 running." }) };
       if (input.type === "batchLookup") {
         result.matches = {};
-        let remaining = MAX_RESULTS;
-        for (const query of input.queries) {
+        const records = new Map(input.queries.map(query => {
           const key = `${query.repository}#${query.number}`;
-          const records = [...new Map(results.flatMap(item => item.result?.matches[key] || []).map(thread => [`${thread.environmentId}:${thread.id}`, thread])).values()];
-          result.matches[key] = sort(records).slice(0, Math.min(10, remaining));
-          remaining -= result.matches[key].length;
-          if (records.length > result.matches[key].length) result.truncated = true;
+          return [key, sort([...new Map(results.flatMap(item => item.result?.matches[key] || []).map(thread => [`${thread.environmentId}:${thread.id}`, thread])).values()])];
+        }));
+        // Fill every PR's other threads before any sub-agents, so hidden sub-agents cannot use up the shared limit.
+        let remaining = MAX_RESULTS;
+        for (const subagent of [false, true]) {
+          for (const [key, threads] of records) {
+            const shown = result.matches[key] ||= [];
+            const added = threads.filter(thread => Boolean(thread.subagent) === subagent).slice(0, Math.min(10 - shown.length, remaining));
+            shown.push(...added);
+            remaining -= added.length;
+          }
         }
+        if ([...records].some(([key, threads]) => threads.length > result.matches[key].length)) result.truncated = true;
       } else {
         const records = [...new Map(results.flatMap(item => item.result?.threads || []).map(thread => [`${thread.environmentId}:${thread.id}`, thread])).values()];
         result.threads = sort(records).slice(0, MAX_RESULTS);

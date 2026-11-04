@@ -118,7 +118,7 @@ async function check(force = false) {
 
 function updateFilters(environments = []) {
   const preferences = T3Settings.get();
-  for (const key of ["includeArchived", "includeBranch", "listBadges", "liveBranches"]) document.getElementById(key).checked = preferences[key];
+  for (const key of ["includeArchived", "includeBranch", "includeSubagents", "listBadges", "liveBranches"]) document.getElementById(key).checked = preferences[key];
   const select = document.getElementById("computer");
   const names = new Set([...Array.from(select.options).map(option => option.value).filter(value => value !== "all"),
     ...environments.map(environment => environment.name), ...(preferences.computer === "all" ? [] : [preferences.computer])]);
@@ -132,7 +132,7 @@ function updateFilters(environments = []) {
   select.value = preferences.computer;
   document.getElementById("sort").value = preferences.sort;
 }
-for (const key of ["includeArchived", "includeBranch", "listBadges", "liveBranches", "computer", "sort"]) {
+for (const key of ["includeArchived", "includeBranch", "includeSubagents", "listBadges", "liveBranches", "computer", "sort"]) {
   document.getElementById(key).addEventListener("change", async event => {
     try {
       await T3Settings.update({ [key]: ["computer", "sort"].includes(key) ? event.target.value : event.target.checked });
